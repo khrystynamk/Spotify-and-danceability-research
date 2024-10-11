@@ -1,0 +1,775 @@
+---
+title: "Spotify and danceability research"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+# Install all required packages
+
+```{r}
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+install.packages("ggplot2")
+install.packages("psych")
+install.packages("dplyr")
+install.packages("moments")
+install.packages("BSDA")
+install.packages("readr")
+install.packages("corrplot")
+install.packages("reshape2")
+```
+
+# Import the necessary libraries
+
+```{r}
+library(ggplot2)
+library(psych)
+library(dplyr)
+library(moments)
+library(BSDA)
+library(readr)
+library(corrplot)
+library(reshape2)
+```
+
+# Purpose of the research
+
+**Team**: Khrystyna Mysak, Mariia Ivanchenko, Kateryna Kovalchuk
+
+Our research aims to perform an extensive analysis, including descriptive statistics and hypothesis testing to unveil patterns and correlations within the Spotify songs dataset, thereby offering valuable insights into diverse aspects of the music. Generally, the purpose of this research project is to study how danceability is related to genres and popularity, as well as research how was this feature generally measured. Last but not the least, we intend to determine the relation between durartion and genre as well as relation between popularity and genre.
+
+# Information about dataset
+
+The data was obtained from this
+[website](https://huggingface.co/datasets/maharshipandya/spotify-tracks-dataset).
+This dataset consists of 114k rows of various songs and provides
+extensive information about Spotify tracks, including audio features,
+track details, and genre categorization. To conduct our research, we
+will be using the following variables for hypothesis testing as well as
+descriptive analysis:
+
+-   track_name
+-   artists
+-   duration_ms
+-   danceability (and energy, loudness, liveness, valence, tempo)
+-   track_genre
+-   popularity
+
+# Loading the data
+
+```{r}
+spotify_data <- read.csv("dataset.csv")
+head(spotify_data)
+```
+
+# Descriptive analysis
+
+Firstly, we'll examine the dataset to familiarize ourselves with its variables, review the data formats and plan our approach for exploration.
+
+```{r}
+# summary(spotify_data)
+describe(spotify_data) # from 'psych' library
+```
+
+```{r}
+histogram_labels <- c('popularity', 'danceability', 'energy', 'loudness', 'liveness', 'valence', 'tempo')
+colors <- c('#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#e377c2', '#17becf')
+
+plots_list <- list()
+for (i in 1:length(histogram_labels)) {
+  p <- ggplot(data = spotify_data, aes(x = .data[[histogram_labels[i]]], fill = after_stat(x))) +
+    geom_density(alpha = 0.5) +
+    labs(title = paste(histogram_labels[i], "distribution"), x = histogram_labels[i], y = 'frequency') +
+    scale_fill_gradient(low = colors[i], high = colors[i], guide = 'none') +
+    theme_minimal()
+  
+  plots_list[[i]] <- p
+}
+
+for (i in 1:length(plots_list)) {
+  print(plots_list[[i]])
+}
+
+```
+
+As we can see from the plots, the distribution of only one feature can be predicted - danceability seems to have a normal distribution (**spoiler**: we have already tested that and found out that it is also **not** a not a normal distribution). The rest of the characteristics do not seem to be from some distribution family that we know.
+
+Now let's see what are the kurtosis and skewness for each of the characteristics above.
+
+- Skewness
+
+Skewness is a measure of asymmetry. If skewness is zero it means that data is symmetric
+
+If $\gamma > 0$ that means our distribution right-skewed (it has a heavy right tail).
+
+If $\gamma < 0$ we have left-skewed distribution (a heavy left tail)
+
+$$ \gamma = \frac{\sigma_3}{\sigma_2^\frac{3}{2}} $$
+
+- Kurtosis
+
+Kurtosis is used compare it with the kurtosis coefficient of normal distribution, which is equal to zero.
+
+$$ \kappa = \frac{\sigma_4}{\sigma_2^2} - 3 $$
+
+```{r}
+selected_cols <- c("duration_ms", "popularity", "danceability", "energy", "loudness", "liveness", "valence", "tempo")
+
+skew_values <- sapply(spotify_data[selected_cols], skewness)
+kurtosis_values <- sapply(spotify_data[selected_cols], kurtosis)
+
+result_df <- data.frame(skew = skew_values, kurtosis = kurtosis_values)
+rownames(result_df) <- selected_cols
+result_df
+
+```
+
+We can see the representation of skewness and kurtosis on the plots above. For example, danceability, energy and loudness have a negative skew, which results in heavy left tail on the plot. The rest of the distributions seem to be either relatively symmetric or to have a have right tail (liveness).
+
+To conclude our discriptive analysis, we want to determine the top song and top artist by popularity. The following histograms show **top 20 songs and artists** by their mean popularity.
+
+```{r}
+top_songs <- spotify_data %>%
+  group_by(track_name) %>%
+  summarise(mean_popularity = mean(popularity)) %>%
+  top_n(20, mean_popularity)
+
+ggplot(data = top_songs, aes(x = reorder(track_name, -mean_popularity), y = mean_popularity, fill = track_name)) +
+  geom_bar(stat = "identity") +
+  labs(title = 'Top Tracks with Popularity', x = 'Tracks', y = 'Popularity') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8)) + 
+  scale_x_discrete(labels = function(x) ifelse(seq_along(x) %% 2 == 0, '', x)) +
+  guides(fill = FALSE)
+```
+
+```{r}
+top_artists <- spotify_data %>%
+  group_by(artists) %>%
+  summarise(mean_popularity = mean(popularity)) %>%
+  top_n(20, mean_popularity) 
+
+ggplot(data = top_artists, aes(x = reorder(artists, -mean_popularity), y = mean_popularity, fill = artists)) +
+  geom_bar(stat = "identity") +
+  labs(title = 'Top Artists with Mean Popularity', x = 'Artist', y = 'Mean Popularity') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  guides(fill = FALSE)
+```
+
+The histograms shows that the top track is **Unholy by Sam Smith and Kim Petras**. The top artist also concide with the author of the top song. Kind of a fascinating result and based on it we can predict that the dataset was updated around September 2022 - the beginning of 2023, which is the approximate period this song was on the peak of its popularity.
+
+# Hypothesis testing
+
+## 1. Testing danceability
+
+Let's split this hypothesis into a few parts:
+
+- testing the relation between danceability and other song features (tempo, energy, valence, loudness)
+
+- testing means of danceability for different genres (pop, salsa, electro, jazz, country, hard-rock, opera etc.) and comparing them
+
+- testing the relation between popularity and danceability
+
+### Testing the relation between danceability and other song features (tempo, energy, valence, loudness)
+
+From documentation to the dataset:
+
+**Danceability** describes how suitable a track is for dancing based on a combination of musical elements including tempo, rhythm stability, beat strength, and overall regularity. A value of 0.0 is least danceable and 1.0 is most danceable.
+
+Based on this description, we decided to test out whether we truly have some correlation between danceability and **tempo, energy, valence, loudness** characteristics to decide which features were taken into account while constructing the danceability rate for songs.
+
+$H_0$: There is **no** correlation between danceability and tempo (energy, valence, loudness) characteristics.
+
+$H_1$: There **is** correlation between danceability and tempo (energy, valence, loudness) characteristics.
+
+For this test it would be sufficient to use linear regression as we want to see how values correlate with each other. The formula for Pearson's correlation coefficient $r$ (extended formula from the lesson):
+
+$$
+r = \frac{\sum (x - \bar{x})(y - \bar{y})}{\sqrt{\sum (x - \bar{x})^2 \sum (y - \bar{y})^2}}
+$$
+
+```{r}
+lm_tempo <- lm(danceability ~ tempo, data = spotify_data)
+lm_energy <- lm(danceability ~ energy, data = spotify_data)
+lm_valence <- lm(danceability ~ valence, data = spotify_data)
+lm_loudness <- lm(danceability ~ loudness, data = spotify_data)
+
+summary(lm_tempo)
+summary(lm_energy)
+summary(lm_valence)
+summary(lm_loudness)
+```
+
+```{r}
+plot(sort(spotify_data$tempo), sort(spotify_data$danceability), xlab = "Tempo", ylab = "Danceability", main = "Danceability and Tempo", pch=16, col = "pink")
+abline(lm_tempo, col = "darkblue")
+
+plot(sort(spotify_data$energy), sort(spotify_data$danceability), xlab = "Energy", ylab = "Danceability", main = "Danceability and Energy", pch=16, col = "lightblue")
+abline(lm_energy, col = "darkblue")
+
+plot(sort(spotify_data$valence), sort(spotify_data$danceability), xlab = "Valence", ylab = "Danceability", main = "Danceability and Valence", pch=16, col = "violet")
+abline(lm_valence, col = "darkblue")
+
+plot(sort(spotify_data$loudness), sort(spotify_data$danceability), xlab = "Loudness", ylab = "Danceability", main = "Danceability and Loudness", pch=16, col = "purple")
+abline(lm_loudness, col = "darkblue")
+```
+```{r}
+correlation_matrix <- cor(spotify_data[c("danceability", "tempo", "energy", "valence", "loudness")], method = "pearson")
+corrplot(correlation_matrix, method = "color", tl.col = "darkblue")
+```
+
+#### Conclusion
+
+As we can see, the results are pretty fascinating. It was claimed that danceability is determined based on a combination of musical elements including tempo and other characteristics. However, as our tests show, it's **correlation with tempo is the smallest among all the features we used for testing**! Turns out that the song properties we suspected would correlate with danceability give better results than the tempo characteristic.
+
+### Testing means of danceability for different genres (pop, salsa, electro, jazz, country, hard-rock, opera etc.) and comparing them
+
+Firstly, we are going to test the distribution of **danceability** as it will influence the test we'll be using for correlation and mean.
+
+$H_0$: Danceability has **normal** distribution.
+
+$H_1$: Danceability **is not** normally distributed.
+
+```{r}
+spotify_data$danceability <- jitter(spotify_data$danceability)
+ks_test_result <- ks.test(spotify_data$danceability, "pnorm")
+
+print(ks_test_result)
+```
+As **p-value is less** than our significance level 0.05, we reject $H_0$ and claim that danceability feature is not normally distributed.
+
+Now, the main hypotheses for this part:
+
+$H_0$: mean of danceability for some genre is equal to the mean of danceability for some other genre
+
+$H_1$: mean of danceability for some genre is greater (less) than the mean of danceability for some other genre
+
+Let's look at the histogram of top 20 genres by their mean danceability, we'll use the information obtained to perform the desired hypothesis testing.
+
+```{r}
+mean_danceability <- tapply(spotify_data$danceability, spotify_data$track_genre, mean)
+genre_names <- names(mean_danceability)
+mean_danceability_df <- data.frame(track_genre = genre_names, mean_danceability = mean_danceability)
+top_20_genres <- head(mean_danceability_df[order(mean_danceability_df$mean_danceability, decreasing = TRUE), ], 20)
+
+ggplot(top_20_genres, aes(x = reorder(track_genre, -mean_danceability), y = mean_danceability)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "white") +
+  labs(x = "Genre", y = "Mean Danceability", title = "Top 20 Genres by Mean Danceability") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+We can observe some interesting genres, for which such high mean danceability is absolutely not obvious. For example, **sad** and **study** genres.
+
+We will be using **t-test** to test the means of two different samples, as the variance is unknown. Also, **t-test** is appropriate, when we have samples from normal distribution, and even though in our case the distribution is unknown, our sample size is quite large (1000), so we can rely on the central limit theorem and our sample means will be approximately normally distributed. As the difference in mean danceability for **sad** music and other genres shown in the histogram is obvious, let's test the **sad** genre with the following hypotheses:
+
+$H_0$: mean of danceability for **sad** genre is equal to the mean of danceability for **salsa** genre.
+
+$H_1$: mean of danceability for **sad** genre is less than the mean of danceability **salsa** genre.
+
+```{r}
+danceability_salsa <- spotify_data$danceability[spotify_data$track_genre == "salsa"]
+danceability_sad <- spotify_data$danceability[spotify_data$track_genre == "sad"]
+
+t_test_salsa_vs_sad <- t.test(danceability_salsa, danceability_sad, alternative = "less", conf.level = 0.95)
+print(t_test_salsa_vs_sad)
+```
+
+As we can see, the **p-value** is less than our significance level, which is 0.05. Thus, we have enough evidence to reject the null hypothesis and claim that **sad** songs have higher mean danceability rate than songs of **salsa** genre!
+
+Let's conduct some more tests to find out which genres have higher danceability levels.
+
+```{r}
+danceability_pop <- spotify_data$danceability[spotify_data$track_genre == "pop"]
+danceability_latino <- spotify_data$danceability[spotify_data$track_genre == "latino"]
+danceability_samba <- spotify_data$danceability[spotify_data$track_genre == "samba"]
+danceability_jazz <- spotify_data$danceability[spotify_data$track_genre == "jazz"]
+danceability_disco <- spotify_data$danceability[spotify_data$track_genre == "disco"]
+danceability_hiphop <- spotify_data$danceability[spotify_data$track_genre == "hip-hop"]
+
+t_test_pop_vs_latino <- t.test(danceability_pop, danceability_latino, alternative = "less", conf.level = 0.95)
+print(t_test_pop_vs_latino)
+
+t_test_samba_vs_jazz <- t.test(danceability_samba, danceability_jazz, alternative = "greater", conf.level = 0.95)
+print(t_test_samba_vs_jazz)
+
+t_test_disco_vs_hiphop <- t.test(danceability_disco, danceability_hiphop, alternative = "greater", conf.level = 0.95)
+print(t_test_disco_vs_hiphop)
+
+t_test_pop_vs_disco <- t.test(danceability_pop, danceability_disco, alternative = "less", conf.level = 0.95)
+print(t_test_pop_vs_disco)
+```
+
+As we can see, the **p-value** is greater than our significance level, which is 0.05, only in **one case**: when we are testing the mean danceability for disco and hip-hop genres. It is actually approximately the same, thus we do not have enough evidence to reject the null hypothesis.
+
+What about other hypotheses and tests, in each case we are rejecting the null hypothesis, because our **p-value** is less than significance level:
+
+- latino music has a higher mean danceability level than pop
+- samba music has a higher mean danceability level than jazz
+- disco music has a higher mean danceability level than pop
+
+### Testing the relation between popularity and danceability
+
+We will use Spearman's rank correlation as opposed to Pearson to determine correlation between danceability and popularity.
+
+$H_0$: There is **no** correlation between popularity and danceability.
+
+$H_1$: There **is** correlation between popularity and danceability.
+
+Spearman's rank correlation:
+
+- doesn't require the data to be normally distributed (our data is not normally distributed)
+
+- measures the strength and direction of monotonic relationships (not necessarily linear)
+
+Spearman's rank correlation measures the strength and direction of association between two ranked variables. It basically gives the measure of monotonicity of the relation between two variables i.e. how well the relationship between two variables could be represented using a monotonic function. 
+
+- **Correlation 0**: there is no relationship between variables.
+
+- **Correlation (0, 1]**: there is a positive relation between variables, if one variable increases, the other also increases on the same value or with some coefficient.
+
+- **Correlation [-1, 0)**: there is a negative relation between variables, if one variable increases, the other decreases on the same value or with some coefficient.
+
+The Spearman correlation method computes the correlation between the rank of x and the rank of y variables. In this formula, $x′=rank(x)$ and $y′=rank(y)$.
+
+$$\rho = \frac{\sum(x' - \bar{x})(y'_i - \bar{y})}{\sqrt{\sum(x' - \bar{x})^2 \sum(y' - \bar{y})^2}}$$
+Let's do it iteratively:
+
+1) We should give our values of two samples a rank - the lowest value will get a rank 1, and the highest 114000
+2) Use the built-in function to determine Spearman's rank correlation
+
+```{r}
+popularity_ranks <- rank(spotify_data$popularity)
+danceability_ranks <- rank(spotify_data$danceability)
+
+head(popularity_ranks)
+head(danceability_ranks)
+```
+
+```{r}
+spearman_p <- cor.test(popularity_ranks, danceability_ranks, method = "spearman")
+
+print(spearman_p)
+```
+
+#### Conclusion
+
+There is a slight correlation between popularity and danceability. Based on the results we would even reject the null hypothesis $H_0$ and claim that there **is** a relation between those values. **However**, we wouldn't say that the correlations are **very** significant, as it's value is close to zero (0.02663688 ), which means that there is barely any correlation between them.
+
+### General conclusions
+
+Working with real-life data can be quite a challenge. At first, it was even hard to come up with some reasonable hypotheses, which would actually give us fascinating results. To be honest, it was even tough to come up with a captivating topic for this research.
+
+Despite all the challenges, we were able to conduct a research on out dataset. Namely, we were particularly interested in **how** danceability was determined and what other feature might have influence on those values. As a result, we can claim the following:
+
+- Even though it was claimed that danceability is determined based on a combination of musical elements including tempo and other characteristics, our tests show that it's **correlation with tempo is the smallest** among all the features we used for testing! Turns out that the song properties we suspected would correlate with danceability **(energy, loudness, valence)** give better results than the tempo characteristic. We also realize that out particular dataset might have influenced the results, but it was still exciting to receive such results.
+
+- The means of danceability for the genres also prepared some surprises for us: **sad and study genres are among genres with the highest mean danceability rate**! Also some genres that we suspected would be in the top actually have **lower** mean danceability rate that **sad** and **study** (samba, salsa, pop in particular).
+
+- The relation between popularity and danceability is present, but we wouldn't say that it is very significant.
+
+## 2. Dependence between duration and genre (e.g. classical music)
+
+In this part we are about to test these hypothesis:
+
+$H_0$: Duration and the genre of a song are independent.
+
+$H_1$: There **is** dependence between duration and the genre of a song.
+
+To do this we decided to do the Chi-square test of independence first and then, if these two variables are dependent, test means.
+
+1.  The Chi-square test of independence
+
+Our current hypothesis are:
+
+$H_0$: song genre and song duration are independent
+
+$H_1$: song genre and song duration are **not** independent
+
+At first we need to form data frame with observed values for 4 genres and 3 categories of duration.
+
+Genres: *Classical, Rock, Pop and Hip-Hop*
+
+Duration categories: *0-3.8 min*, *3.8-6 min* and *6+ min*
+
+```{r}
+genres <- c("classical", "rock", "pop", "hip-hop")
+lower <- c(0, 0, 0, 0)
+mid <- c(0, 0, 0, 0)
+upper <- c(0, 0, 0, 0)
+
+for (row in 1:nrow(spotify_data)){
+  index <- which(genres == spotify_data[row, "track_genre"]) 
+  dur <- spotify_data[row, "duration_ms"]
+  if (dur < 228030){
+      lower[index] <- lower[index] + 1
+    }
+  else if (dur >= 228030 && dur < 360000){
+      mid[index] <- mid[index] + 1
+  }
+  else if (dur >= 360000){
+      upper[index] <- upper[index] + 1
+    }
+} 
+
+df <- data.frame(lower, mid, upper,row.names=genres)
+
+sum_col <- c(0,0,0,0)
+for (i in 1: 4) {
+  sum_col[i] <- sum(lower[i], mid[i], upper[i])
+}
+
+lower[5] <- sum(lower)
+mid[5] <- sum(mid)
+upper[5] <- sum(upper)
+sum_col[5] <- sum(sum_col)
+
+genres_new <- c(genres, "sum")
+
+df1 <- data.frame(lower, mid, upper, sum_col, row.names=genres_new)
+df1
+```
+
+Now we should calculate $\chi^{2}$ statistics and to do this we will use this formula:
+
+$$ \sum\chi^{2} = \frac{(O-E)^2}{E}$$
+
+Where:
+
+$O$ - Observed value for data set
+
+$E$ - Expected value (calculated below)
+
+Next step is to calculate expected value of each cell.
+
+$$E = \frac{M_r * M_c}{n}$$
+
+Where:
+
+$E$ - the cell expected value
+
+$M_r$ - the row marginal for that cell
+
+$M_c$ - the column marginal for that cell
+
+$n$ - the total sample size
+
+```{r}
+exp_lower <- c(0,0,0,0)
+exp_mid <- c(0,0,0,0)
+exp_upper <- c(0,0,0,0)
+
+for (i in 1:4){
+  exp_lower[i] = (sum_col[1]*lower[5])/4000
+  exp_mid[i] = ((sum_col[2]*mid[5])/4000)
+  exp_upper[i] = ((sum_col[3]*upper[5])/4000)
+}
+
+expected_df <- data.frame(exp_lower, exp_mid, exp_upper, row.names=genres)
+expected_df
+```
+
+We need to calculate degrees of freedom of our distribution and we can do this using:
+
+$$ \text{Degrees of freedom} = (\text{Number of rows} − 1) * (\text{Number of columns} − 1)$$
+
+$$Df = (4-1) * (3-1) = 3 * 2 = 6$$
+
+As we finally have all values we can calculate value of $\chi^{2}_6$:
+
+```{r}
+result <- 0
+
+for (i in 1:4) {
+  for (j in 1:3) {
+    result <- result + ((df[i,j]-expected_df[i,j])^2/expected_df[i,j])
+  }
+}
+result
+```
+
+We can compare our result with inbuilt function and see if it is correct.
+
+```{r}
+chisq.test(df)
+```
+
+As we can wee results are similar, so we did everything in a right way.
+
+**Conclusion**: p-value is less than significance level 0.05 and almost equal to 0, so we can reject null hypothesis and say that song genre and song duration are dependent.
+
+2.  Testing means
+
+We have couple of assumptions according to song duration and its genre:
+
+-   mean duration of classical music is greater than mean duration of rock music
+
+-   mean duration of disco music is greater than mean duration of pop music
+
+-   mean duration of techno music is 4 minutes
+
+And now to test them we can use t-test and then compare with histogram.
+
+```{r}
+classical <- spotify_data[spotify_data$track_genre == "classical", ]
+rock <- spotify_data[spotify_data$track_genre == "rock", ]
+
+t.test(x = classical$duration_ms, y = rock$duration_ms, alternative = "greater")
+```
+
+As we can see mean song duration of classical music is greater than mean song duration of rock music. That is quite an expected result, but mean song duration of classical music is 3.88 minutes that is not as long, as we supposed it to be.
+
+```{r}
+disco <- spotify_data[spotify_data$track_genre == "disco", ]
+pop <- spotify_data[spotify_data$track_genre == "pop", ]
+
+t.test(x = disco$duration_ms, y = pop$duration_ms, alternative = "greater")
+```
+
+Here we can see that mean song duration of disco music is greater than mean song duration of pop music, but the difference is not large.
+
+```{r}
+techno <- spotify_data[spotify_data$track_genre == "techno", ]
+
+t.test(x = techno$duration_ms, alternative = "two.sided")
+```
+
+In this test our assumption was incorrect, because actual mean song duration of techno music is 5.2 minutes, not 4 minutes. Interesting result is that mean song duration of classical music is less than mean song duration of disco music and techno music.
+
+Now we can compare results with histogram and here we can see that they are correct.
+
+```{r}
+genres <- c("pop","rock", "classical","techno",  "disco")
+
+duration <- c()
+for (i in genres) {
+  genre <- spotify_data[spotify_data$track_genre == i, ]
+  dur_mean <- mean(genre$duration_ms)/60000  
+  duration <- c(duration, dur_mean)
+}
+
+genre_data <- data.frame(genres = genres, mean_duration = duration)
+
+ggplot(genre_data, aes(x = genres, y = mean_duration)) +
+  geom_bar(stat = "identity", fill = "violet", color = "white") +
+  labs(title = "Mean Duration for Selected Genres",
+       x = "Genre",
+       y = "Mean Duration (min)") +
+  theme_minimal()
+
+```
+
+### Conclusion
+
+We have tested hypothesis using the Chi-square test of independence and found out that song genre and it`s duration are dependent. According to comparing song durations of some specific genres we got results like that:
+
+- mean song duration for classical music is equal to 3.88 minutes and it is **less** than mean song duration for techno and disco music, but is **greater** than mean song duration of rock music 
+
+- mean song duration for disco and pop music are almost the same
+
+- mean song duration for techno music is 5.2 minutes
+
+## 3. Dependence between popularity and track genre
+
+$H_0$: Genre and the popularity of a song are independent
+
+$H_1$: There **is** dependence between genre and the popularity of a song
+
+Firstly, we want to find min/max/mean value of our popularity to decide on how to divide our data into research groups.
+
+```{r}
+sorted_ <- sort(spotify_data$popularity)
+print(max(sorted_))
+print(min(sorted_))
+print(mean(sorted_))
+```
+
+To test the dependence of popularity and genre we use Chi-square test of independence for 12 genres, using this formula, where **O** - observed value for dataset, **E** - expected value. 
+
+$$ \sum\chi^{2} = \frac{(O-E)^2}{E}$$
+
+$$E = \frac{M_r * M_c}{n}$$ 
+In the formula above, we haver **Mr** - the row marginal for that cell, **Nc** - the column marginal for that cell, **n** - sample size.
+
+We choose some obviously popular genres and some, whose popularity we would want to research. We decided to split the data into three groups -> **[0, 34), [34, 66), [66, 100]**. Why like this? Because we have mean of popularity equal to **33.23854** and we decided to have a root of it as an upper bound of a first interval.
+
+```{r}
+genres <- c("acoustic", "anime", "black-metal","brazil", "chicago-house", "children", "classical", "club", "dancehall", "disco", "rock","pop")
+lower_third <-c(0,0,0,0,0,0,0,0,0,0,0,0)
+mid_third <-c(0,0,0,0,0,0,0,0,0,0,0,0)
+upper_third <-c(0,0,0,0,0,0,0,0,0,0,0,0)
+
+for (i in 1:114000)
+  {
+  index <- which(genres == spotify_data[i, "track_genre"]) 
+  genre_ <- spotify_data$track_genre[i]
+  popularity <- spotify_data[i, "popularity"]
+  if (genre_ %in% genres)
+  {
+    if (popularity < 34) 
+    {
+      lower_third[index] = lower_third[index] + 1
+    } else if (popularity >= 34 && popularity < 66)
+    {
+      mid_third[index] <- mid_third[index] + 1
+    } else if (popularity >= 66 && popularity <= 100) 
+    {
+      upper_third[index] = upper_third[index] + 1
+    }
+  }
+}
+
+sum_col <-c(0,0,0,0,0,0,0,0,0,0,0,0)
+for (i in 1: 12) {
+  sum_col[i] <- sum(lower_third[i], mid_third[i], upper_third[i])
+}
+
+lower_third[13] <- sum(lower_third)
+mid_third[13] <- sum(mid_third)
+upper_third[13] <- sum(upper_third)
+sum_col[13] <- sum(sum_col)
+
+genres_ <- c(genres, "sum")
+
+df <- data.frame(lower_third, mid_third, upper_third, sum_col, row.names=genres_)
+df
+```
+
+Then we should calculate the expected value of a cell.
+
+```{r}
+expected_lower <- c(0,0,0,0,0,0,0,0,0,0,0,0)
+expected_mid <- c(0,0,0,0,0,0,0,0,0,0,0,0)
+expected_upper <- c(0,0,0,0,0,0,0,0,0,0,0,0)
+
+for (i in 1:12){
+  expected_lower[i] = (sum_col[1]*lower_third[13])/12000
+  expected_mid[i] = ((sum_col[2]*mid_third[13])/12000)
+  expected_upper[i] = ((sum_col[3]*upper_third[13])/12000)
+  expected_lower[i] = (sum_col[4]*lower_third[13])/12000
+  expected_mid[i] = ((sum_col[5]*mid_third[13])/12000)
+  expected_upper[i] = ((sum_col[6]*upper_third[13])/12000)
+  expected_lower[i] = (sum_col[7]*lower_third[13])/12000
+  expected_mid[i] = ((sum_col[8]*mid_third[13])/12000)
+  expected_upper[i] = ((sum_col[9]*upper_third[13])/12000)
+  expected_lower[i] = (sum_col[10]*lower_third[13])/12000
+  expected_mid[i] = ((sum_col[11]*mid_third[13])/12000)
+  expected_upper[i] = ((sum_col[12]*upper_third[13])/12000)
+}
+
+expected_df <- data.frame(expected_lower, expected_mid, expected_upper, row.names=genres)
+expected_df
+```
+
+$$ \text{Degrees of freedom} = (\text{Number of rows} − 1) * (\text{Number of columns} − 1) $$
+
+And finally we can calculate our Chi-square value:
+
+```{r}
+Degrees_Of_Freedom = 22
+
+result <- 0
+
+for (i in 1:12) {
+  for (j in 1:3) {
+    result <- result + ((df[i,j]-expected_df[i,j])^2/expected_df[i,j])
+  }
+}
+result
+```
+
+```{r}
+chisq.test(df)
+```
+
+As we can see, our p-value is very small ($2.2e-16 < 0.05$ for the significance level of 0.05), so we should reject $H_0$ and conclude that a song genre and its popularity are dependent.
+
+Then we can test means of our genres. I tested some interesting pairs of
+genres, that or very similar, or have nothing in common.
+
+1)  $H_0$: Mean of popularity of chicago_house is greater than the mean of
+    the rock
+    $H_1$: Mean of popularity of chicago_house is less than the
+    mean of the rock
+
+2)  $H_0$: Mean of popularity of dancehall is less than the mean of the
+    club
+    $H_1$: Mean of popularity of dancehall is greater than the mean of
+    the club
+
+3)  $H_0$: Mean of popularity of anime is less than the mean of the
+    black_metal
+    $H_1$: Mean of popularity of anime is greater than the mean
+    of the black_metal
+
+4)  $H_0$: Mean of popularity of pop is greater than the mean of the
+    classical h1: Mean of popularity of pop is less than the mean of the
+    classical
+
+5)  $H_0$: Mean of popularity of disco is greater than the mean of the club
+    $H_1$: Mean of popularity of disco is less than the mean of the club
+
+```{r}
+
+anime <- spotify_data[spotify_data$track_genre == "anime", ]
+
+chicago_house <- spotify_data[spotify_data$track_genre == "chicago-house", ]
+
+disco <- spotify_data[spotify_data$track_genre == "disco", ]
+
+black_metal <- spotify_data[spotify_data$track_genre == "black-metal", ]
+
+classical <- spotify_data[spotify_data$track_genre == "classical", ]
+
+club <- spotify_data[spotify_data$track_genre == "club", ]
+
+pop <- spotify_data[spotify_data$track_genre == "pop", ]
+
+dancehall <- spotify_data[spotify_data$track_genre == "dancehall", ]
+
+rock <- spotify_data[spotify_data$track_genre == "rock", ]
+```
+
+```{r}
+t.test(x = chicago_house$popularity, y = rock$popularity, alternative = "less")
+```
+
+Result of this test is kinda obvious, because mean of popularity for **chicago house** is actually less then the mean of popularity of rock, and we have very small p-value, which leads us to the rejection of $H_0$. However, at the beginning of the research we expected the mean of popularity of rock be greater than 19.001.
+
+```{r}
+t.test(x = dancehall$popularity, y = club$popularity, alternative = "greater")
+```
+
+This test is between two very similar genres of music. Our p-value is pretty great so we don't reject $H_0$, and we have pretty similar means of this two genres of music, which is kind of obvious.
+
+```{r}
+t.test(x = anime$popularity, y = black_metal$popularity, alternative = "greater")
+```
+
+As we can see, our p-value tells us that we should reject $H_0$, and we can really see, that mean of popularity of anime is greater than mean of popularity of black metal.
+
+```{r}
+t.test(x = pop$popularity, y = classical$popularity, alternative = "less")
+```
+
+This result is also very obvious, that mean of popularity of pop will be greater than the mean of popularity of classical music.
+
+```{r}
+t.test(x = disco$popularity, y = club$popularity, alternative = "less")
+```
+
+Means of these two values is kinda surprising as we didn't expect them to be so close to each other. We have pretty big p-value, so we shouldn't reject $H_0$, that tells us, that mean of popularity of disco is greater than mean of popularity of club music.
+
+### Conclusion
+
+We tested 12 genres using Chi-square test of independence and the means of 9 of them, and get very interesting results, which we discussed earlier.
+
+- There is a relation between popularity and genre
+
+- Pop, dancehall, club, anime, disco and black metal sample means very high
+
+- Anime has the greatest sample mean, and classical has the lowest
